@@ -1,5 +1,7 @@
 export class AddressBalanceChange {
     address: string;
-    balanceChange: string;
+    balanceChangeWei: string;
+    balanceChangeGwei: string;
+    balanceChangeEther: string;
   }
   

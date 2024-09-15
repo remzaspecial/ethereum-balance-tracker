@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { AddressBalanceChange } from './domain/entities/address-balance-change.entity';
+import { BigNumber, ethers } from 'ethers';
 
 @Injectable()
 export class BalanceService {
@@ -23,7 +24,7 @@ export class BalanceService {
         `Обработка блоков с ${blockNumbers[blockNumbers.length - 1]} по ${blockNumbers[0]}`,
       );
 
-      const addressBalanceChanges = new Map<string, bigint>();
+      const addressBalanceChanges = new Map<string, BigNumber>();
 
       for (const blockNumber of blockNumbers) {
         try {
@@ -31,24 +32,20 @@ export class BalanceService {
           const transactions = blockData.transactions;
 
           for (const tx of transactions) {
-            const value = BigInt(tx.value);
+            const value = BigNumber.from(tx.value);
             const from = tx.from?.toLowerCase();
             const to = tx.to?.toLowerCase();
 
             // Уменьшаем баланс отправителя
             if (from) {
-              addressBalanceChanges.set(
-                from,
-                (addressBalanceChanges.get(from) || BigInt(0)) - value,
-              );
+              const prevBalance = addressBalanceChanges.get(from) || BigNumber.from(0);
+              addressBalanceChanges.set(from, prevBalance.sub(value));
             }
 
             // Увеличиваем баланс получателя
             if (to) {
-              addressBalanceChanges.set(
-                to,
-                (addressBalanceChanges.get(to) || BigInt(0)) + value,
-              );
+              const prevBalance = addressBalanceChanges.get(to) || BigNumber.from(0);
+              addressBalanceChanges.set(to, prevBalance.add(value));
             }
           }
         } catch (blockError) {
@@ -56,30 +53,36 @@ export class BalanceService {
             `Ошибка при обработке блока ${blockNumber}: ${blockError.message}`,
             blockError.stack,
           );
-          // Продолжаем обработку остальных блоков
           continue;
         }
       }
 
       // Находим адрес с наибольшим абсолютным изменением баланса
       let maxChangeAddress = '';
-      let maxChangeValue = BigInt(0);
+      let maxChangeValue = BigNumber.from(0);
 
       for (const [address, balanceChange] of addressBalanceChanges.entries()) {
-        const absChange = balanceChange >= BigInt(0) ? balanceChange : -balanceChange;
-        if (absChange > maxChangeValue) {
+        const absChange = balanceChange.abs();
+        if (absChange.gt(maxChangeValue)) {
           maxChangeAddress = address;
           maxChangeValue = absChange;
         }
       }
 
+      // Конвертируем баланс в разные единицы
+      const balanceChangeWei = maxChangeValue.toString();
+      const balanceChangeGwei = ethers.utils.formatUnits(maxChangeValue, 'gwei');
+      const balanceChangeEther = ethers.utils.formatEther(maxChangeValue);
+
       this.logger.log(
-        `Адрес с наибольшим изменением баланса: ${maxChangeAddress}, изменение: ${maxChangeValue}`,
+        `Адрес с наибольшим изменением баланса: ${maxChangeAddress}, изменение: ${balanceChangeEther} ETH`,
       );
 
       return {
         address: maxChangeAddress,
-        balanceChange: maxChangeValue.toString(),
+        balanceChangeWei,
+        balanceChangeGwei,
+        balanceChangeEther,
       };
     } catch (error) {
       this.logger.error(
