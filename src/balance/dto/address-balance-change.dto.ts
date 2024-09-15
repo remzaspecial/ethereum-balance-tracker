@@ -1,4 +1,4 @@
-export class AddressBalanceChange {
+export class AddressBalanceChangeDto {
     address: string;
     balanceChangeWei: string;
     balanceChangeGwei: string;

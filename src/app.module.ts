@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
 import { BalanceModule } from './balance/balance.module';
 import { ConfigModule } from '@nestjs/config';
-import configuration from './configuration/config';
+import configuration from './config/configuration';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true,
       load: [configuration],
+      isGlobal: true,
     }),
-    BalanceModule],
+    BalanceModule,
+  ],
 })
 export class AppModule {}
