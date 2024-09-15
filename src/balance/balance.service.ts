@@ -1,76 +1,115 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { AddressBalanceChange } from './domain/entities/address-balance-change.entity';
 
 @Injectable()
 export class BalanceService {
+  private readonly logger = new Logger(BalanceService.name);
   private readonly apiKey = process.env.ETHERSCAN_API_KEY;
   private readonly etherscanApiUrl = 'https://api.etherscan.io/api';
 
   constructor(private readonly httpService: HttpService) {}
 
   async findAddressWithLargestBalanceChange(): Promise<AddressBalanceChange> {
-    const latestBlockNumber = await this.getLatestBlockNumber();
-    const blockNumbers = this.getLastNBlockNumbers(latestBlockNumber, 100);
+    this.logger.log('Начало поиска адреса с наибольшим изменением баланса');
 
-    const addressBalanceChanges = new Map<string, bigint>();
+    try {
+      const latestBlockNumber = await this.getLatestBlockNumber();
+      this.logger.debug(`Последний номер блока: ${latestBlockNumber}`);
 
-    for (const blockNumber of blockNumbers) {
-      const blockData = await this.getBlockByNumber(blockNumber);
-      const transactions = blockData.transactions;
+      const blockNumbers = this.getLastNBlockNumbers(latestBlockNumber, 100);
+      this.logger.debug(
+        `Обработка блоков с ${blockNumbers[blockNumbers.length - 1]} по ${blockNumbers[0]}`,
+      );
 
-      for (const tx of transactions) {
-        const value = BigInt(tx.value);
-        const from = tx.from?.toLowerCase();
-        const to = tx.to?.toLowerCase();
+      const addressBalanceChanges = new Map<string, bigint>();
 
-        // Уменьшаем баланс отправителя
-        if (from) {
-          addressBalanceChanges.set(
-            from,
-            (addressBalanceChanges.get(from) || BigInt(0)) - value,
+      for (const blockNumber of blockNumbers) {
+        try {
+          const blockData = await this.getBlockByNumber(blockNumber);
+          const transactions = blockData.transactions;
+
+          for (const tx of transactions) {
+            const value = BigInt(tx.value);
+            const from = tx.from?.toLowerCase();
+            const to = tx.to?.toLowerCase();
+
+            // Уменьшаем баланс отправителя
+            if (from) {
+              addressBalanceChanges.set(
+                from,
+                (addressBalanceChanges.get(from) || BigInt(0)) - value,
+              );
+            }
+
+            // Увеличиваем баланс получателя
+            if (to) {
+              addressBalanceChanges.set(
+                to,
+                (addressBalanceChanges.get(to) || BigInt(0)) + value,
+              );
+            }
+          }
+        } catch (blockError) {
+          this.logger.error(
+            `Ошибка при обработке блока ${blockNumber}: ${blockError.message}`,
+            blockError.stack,
           );
-        }
-
-        // Увеличиваем баланс получателя
-        if (to) {
-          addressBalanceChanges.set(
-            to,
-            (addressBalanceChanges.get(to) || BigInt(0)) + value,
-          );
+          // Продолжаем обработку остальных блоков
+          continue;
         }
       }
-    }
 
-    // Находим адрес с наибольшим абсолютным изменением баланса
-    let maxChangeAddress = '';
-    let maxChangeValue = BigInt(0);
+      // Находим адрес с наибольшим абсолютным изменением баланса
+      let maxChangeAddress = '';
+      let maxChangeValue = BigInt(0);
 
-    for (const [address, balanceChange] of addressBalanceChanges.entries()) {
-      const absChange = balanceChange >= BigInt(0) ? balanceChange : -balanceChange;
-      if (absChange > maxChangeValue) {
-        maxChangeAddress = address;
-        maxChangeValue = absChange;
+      for (const [address, balanceChange] of addressBalanceChanges.entries()) {
+        const absChange = balanceChange >= BigInt(0) ? balanceChange : -balanceChange;
+        if (absChange > maxChangeValue) {
+          maxChangeAddress = address;
+          maxChangeValue = absChange;
+        }
       }
-    }
 
-    return {
-      address: maxChangeAddress,
-      balanceChange: maxChangeValue.toString(),
-    };
+      this.logger.log(
+        `Адрес с наибольшим изменением баланса: ${maxChangeAddress}, изменение: ${maxChangeValue}`,
+      );
+
+      return {
+        address: maxChangeAddress,
+        balanceChange: maxChangeValue.toString(),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Ошибка при поиске адреса с наибольшим изменением баланса: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   private async getLatestBlockNumber(): Promise<number> {
-    const response$ = this.httpService.get(this.etherscanApiUrl, {
-      params: {
-        module: 'proxy',
-        action: 'eth_blockNumber',
-        apiKey: this.apiKey,
-      },
-    });
-    const response = await lastValueFrom(response$);
-    return parseInt(response.data.result, 16);
+    try {
+      const response$ = this.httpService.get(this.etherscanApiUrl, {
+        params: {
+          module: 'proxy',
+          action: 'eth_blockNumber',
+          apiKey: this.apiKey,
+        },
+      });
+      const response = await lastValueFrom(response$);
+      const blockNumber = parseInt(response.data.result, 16);
+      this.logger.debug(`Получен последний номер блока: ${blockNumber}`);
+      return blockNumber;
+    } catch (error) {
+      this.logger.error(
+        `Ошибка при получении последнего номера блока: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   private getLastNBlockNumbers(latestBlockNumber: number, n: number): number[] {
@@ -78,17 +117,26 @@ export class BalanceService {
   }
 
   private async getBlockByNumber(blockNumber: number): Promise<any> {
-    const hexBlockNumber = '0x' + blockNumber.toString(16);
-    const response$ = this.httpService.get(this.etherscanApiUrl, {
-      params: {
-        module: 'proxy',
-        action: 'eth_getBlockByNumber',
-        tag: hexBlockNumber,
-        boolean: 'true',
-        apiKey: this.apiKey,
-      },
-    });
-    const response = await lastValueFrom(response$);
-    return response.data.result;
+    try {
+      const hexBlockNumber = '0x' + blockNumber.toString(16);
+      const response$ = this.httpService.get(this.etherscanApiUrl, {
+        params: {
+          module: 'proxy',
+          action: 'eth_getBlockByNumber',
+          tag: hexBlockNumber,
+          boolean: 'true',
+          apiKey: this.apiKey,
+        },
+      });
+      const response = await lastValueFrom(response$);
+      this.logger.debug(`Получены данные для блока ${blockNumber}`);
+      return response.data.result;
+    } catch (error) {
+      this.logger.error(
+        `Ошибка при получении данных блока ${blockNumber}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 }
