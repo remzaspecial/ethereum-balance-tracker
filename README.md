@@ -66,9 +66,9 @@ curl http://localhost:3000/balance/largest-change
 
 ```json
 {
-    "address": "0x84b38bc60f3bd82640ecefa320dab2be62e2da15",
-    "balanceChangeWei": "569999754175774941000",
-    "balanceChangeGwei": "569999754175.774941",
-    "balanceChangeEther": "569.999754175774941"
+    "address": "0xf1da173228fcf015f43f3ea15abbb51f0d8f1123",
+    "balanceChangeWei": "38163878885001605411",
+    "balanceChangeGwei": "38163878885.001605411",
+    "balanceChangeEther": "38.163878885001605411"
 }
 ```

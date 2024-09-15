@@ -4,12 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import { BigNumber, ethers } from 'ethers';
 import { lastValueFrom } from 'rxjs';
 import axiosRetry from 'axios-retry';
-import pLimit from 'p-limit';
 import { ApiException } from '../common/exceptions/api.exception';
 import { EtherscanResponse, BlockData } from '../etherscan/etherscan.interfaces';
 import { AddressBalanceChangeDto } from './dto/address-balance-change.dto';
 import { getLastNBlockNumbers } from '../common/utils/block-number.util';
-
 
 @Injectable()
 export class BalanceService {
@@ -17,7 +15,6 @@ export class BalanceService {
   private readonly etherscanApiUrl: string;
   private readonly apiKey: string;
   private readonly numberOfBlocks: number;
-  private readonly maxConcurrency: number;
 
   constructor(
     private readonly httpService: HttpService,
@@ -26,7 +23,6 @@ export class BalanceService {
     this.etherscanApiUrl = this.configService.get<string>('ETHERSCAN_API_URL');
     this.apiKey = this.configService.get<string>('ETHERSCAN_API_KEY');
     this.numberOfBlocks = this.configService.get<number>('NUMBER_OF_BLOCKS', 100);
-    this.maxConcurrency = this.configService.get<number>('MAX_CONCURRENCY', 5);
 
     // Настройка повторных попыток для axios
     axiosRetry(this.httpService.axiosRef, {
@@ -148,14 +144,10 @@ export class BalanceService {
   }
 
   /**
-   * Получает данные блоков по их номерам с контролем конкурентности.
+   * Получает данные блоков по их номерам.
    */
   private async getBlocksByNumbers(blockNumbers: number[]): Promise<BlockData[]> {
-    const limit = pLimit(this.maxConcurrency);
-    const blockPromises = blockNumbers.map((blockNumber) =>
-      limit(() => this.getBlockByNumber(blockNumber)),
-    );
-
+    const blockPromises = blockNumbers.map((blockNumber) => this.getBlockByNumber(blockNumber));
     const results = await Promise.allSettled(blockPromises);
 
     const blocks: BlockData[] = [];
