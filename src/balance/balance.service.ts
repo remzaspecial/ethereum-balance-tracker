@@ -3,6 +3,8 @@ import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { AddressBalanceChange } from './domain/entities/address-balance-change.entity';
 import { BigNumber, ethers } from 'ethers';
+import { getLastNBlockNumbers } from '../utils/utils';
+import { EtherscanResponse, BlockData } from '../etherscan/etherscan.interfaces';
 
 @Injectable()
 export class BalanceService {
@@ -19,7 +21,7 @@ export class BalanceService {
       const latestBlockNumber = await this.getLatestBlockNumber();
       this.logger.debug(`Последний номер блока: ${latestBlockNumber}`);
 
-      const blockNumbers = this.getLastNBlockNumbers(latestBlockNumber, 100);
+      const blockNumbers = getLastNBlockNumbers(latestBlockNumber, 100);
       this.logger.debug(
         `Обработка блоков с ${blockNumbers[blockNumbers.length - 1]} по ${blockNumbers[0]}`,
       );
@@ -95,7 +97,7 @@ export class BalanceService {
 
   private async getLatestBlockNumber(): Promise<number> {
     try {
-      const response$ = this.httpService.get(this.etherscanApiUrl, {
+      const response$ = this.httpService.get<EtherscanResponse<string>>(this.etherscanApiUrl, {
         params: {
           module: 'proxy',
           action: 'eth_blockNumber',
@@ -103,7 +105,8 @@ export class BalanceService {
         },
       });
       const response = await lastValueFrom(response$);
-      const blockNumber = parseInt(response.data.result, 16);
+      const blockNumberHex = response.data.result;
+      const blockNumber = parseInt(blockNumberHex, 16);
       this.logger.debug(`Получен последний номер блока: ${blockNumber}`);
       return blockNumber;
     } catch (error) {
@@ -115,14 +118,10 @@ export class BalanceService {
     }
   }
 
-  private getLastNBlockNumbers(latestBlockNumber: number, n: number): number[] {
-    return Array.from({ length: n }, (_, i) => latestBlockNumber - i);
-  }
-
-  private async getBlockByNumber(blockNumber: number): Promise<any> {
+  private async getBlockByNumber(blockNumber: number): Promise<BlockData> {
     try {
       const hexBlockNumber = '0x' + blockNumber.toString(16);
-      const response$ = this.httpService.get(this.etherscanApiUrl, {
+      const response$ = this.httpService.get<EtherscanResponse<BlockData>>(this.etherscanApiUrl, {
         params: {
           module: 'proxy',
           action: 'eth_getBlockByNumber',
